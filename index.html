@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>*{box-sizing:border-box}:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>DoorDash Webhook Delay, Oct 16</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one RTL reading column; verdict → numbers → delay chart → timeline → differences → order lifecycles (lane charts) → orders table → our side → next steps */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#17202b; --muted:#5b6675; --line:#dde2e8;
+  --accent:#c2410c; --accent-soft:#fdebe2; --base:#64748b; --ok:#15803d; --ok-soft:#e3f4e8; --blue:#1d4ed8; --blue-soft:#e3eafc;
+  --sans:"IBM Plex Sans Hebrew","Arial Hebrew",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11161d; --surface:#18202a; --fg:#e6ebf1; --muted:#97a3b3; --line:#2a3542;
+  --accent:#fb8a4f; --accent-soft:#3a2117; --base:#94a3b8; --ok:#4ade80; --ok-soft:#14301f; --blue:#7aa2ff; --blue-soft:#1b2747; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161d; --surface:#18202a; --fg:#e6ebf1; --muted:#97a3b3; --line:#2a3542;
+  --accent:#fb8a4f; --accent-soft:#3a2117; --base:#94a3b8; --ok:#4ade80; --ok-soft:#14301f; --blue:#7aa2ff; --blue-soft:#1b2747; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.6}
+.wrap{direction:rtl;max-width:1000px;margin:0 auto;padding-block:32px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:40px}
+h1{font-size:28px;line-height:1.25;margin:0;text-wrap:balance;font-weight:700}
+h2{font-size:20px;margin:0 0 12px;text-wrap:balance;font-weight:600}
+h3{font-size:16px;margin:0;font-weight:600}
+p{margin:0;max-width:75ch}
+.eyebrow{font-size:13px;color:var(--muted);font-weight:600}
+.mono,.t{font-family:var(--mono);font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate}
+header{display:grid;gap:12px}
+.verdict{background:var(--accent-soft);border-right:4px solid var(--accent);padding:14px 16px;border-radius:4px;display:grid;gap:8px}
+.verdict strong{color:var(--accent)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:grid;gap:2px}
+.stat b{font-size:24px;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:500;direction:ltr;text-align:right}
+.stat span{color:var(--muted);font-size:13px}
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;overflow-x:auto;direction:ltr}
+.chart svg{display:block;width:100%;min-width:680px;height:auto}
+.legend{direction:rtl;display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-left:6px}
+.legend i.dot{width:10px;height:10px;border-radius:50%}
+.legend i.dia{width:9px;height:9px;transform:rotate(45deg)}
+.tablebox{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12.5px;color:var(--muted);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.t{white-space:nowrap;text-align:right}
+tr.ev td{color:var(--muted)}
+tr.peak td{background:var(--accent-soft)}
+tr.hl td{background:var(--blue-soft)}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;font-family:var(--mono);white-space:nowrap;direction:ltr}
+.pill.bad{background:var(--accent-soft);color:var(--accent)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.diff{display:grid}
+.diff div{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.diff .hd{font-size:12.5px;color:var(--muted);font-weight:600;padding-top:0}
+.diff div span:last-child{color:var(--accent);font-weight:500}
+@media (max-width:620px){.diff div{grid-template-columns:1fr;gap:2px}.diff .hd{display:none}.diff div span:first-child{font-weight:600}}
+ul{margin:0;padding-right:20px;padding-left:0;display:grid;gap:6px;max-width:80ch}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:24px}
+.cols>section{min-width:0}
+.note{font-size:13px;color:var(--muted)}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.lang{display:inline-flex;align-items:center;font-size:13px;font-weight:600;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:5px 14px;text-decoration:none;font-family:"IBM Plex Sans",var(--sans)}
+.lang:hover,.lang:focus-visible{border-color:var(--accent);color:var(--accent);outline:none}
+.bars{display:grid;gap:8px;max-width:760px}
+.bar{display:grid;grid-template-columns:110px minmax(0,1fr) 130px;gap:12px;align-items:center}
+.bar .lbl{font-size:14px;font-weight:500}
+.bar .trk{height:16px;background:var(--line);border-radius:3px;overflow:hidden;direction:rtl}
+.bar .trk i{display:block;height:100%;background:var(--accent)}
+.bar b{font-weight:500;font-size:13.5px}
+@media (max-width:520px){.bar{grid-template-columns:90px minmax(0,1fr) 105px;gap:8px}}
+.order{display:grid;gap:12px}
+.order-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.kv div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:grid;gap:2px}
+.kv div.bad{border-color:var(--accent)}
+.kv span{font-size:12.5px;color:var(--muted)}
+.kv b{font-family:var(--mono);font-weight:500;font-variant-numeric:tabular-nums;direction:ltr;text-align:right}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="topbar">
+    <div class="eyebrow">סיכום תקלה · PHUS + PHCA · DoorDash Drive · לילה 15→16 באוקטובר 2026</div>
+    <a class="lang" href="en.html" lang="en" hreflang="en">English</a>
+  </div>
+  <h1>הזמנות תקועות ב-"Waiting For Agg": ‏DoorDash עיכבו את העדכונים שלהם כ-3 שעות</h1>
+  <div class="verdict">
+    <p><strong>שורש התקלה (ודאות גבוהה): אצל DoorDash.</strong> בין 00:10 ל-03:10 UTC (‏03:10–06:10 שעון ישראל) כל משלוח נוצר אצל DoorDash מיד, אבל עדכוני הסטטוס (webhooks) הגיעו באיחור של 20–41 דקות. החנויות לא ידעו ששליח שובץ, ולכן ההזמנות נשארו ב-"Waiting For Agg" בזמן שהשליח כבר עמד בדלפק. ב-03:00 UTC ‏DoorDash שחררו את כל העדכונים שהצטברו והמצב חזר לעצמו.</p>
+    <p>אצלנו: כל עדכון עבר מהשירות שלנו, דרך התורים, ועד אפליקציית החנות תוך שנייה. לא היה שינוי, תקלה או פריסה בצד שלנו.</p>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><b>18 s</b><span>זמן רגיל עד העדכון הראשון מ-DoorDash (חציון)</span></div>
+  <div class="stat"><b>41 min</b><span>חציון בשיא, 02:00 UTC</span></div>
+  <div class="stat"><b>11,121</b><span>הזמנות PHUS שחיכו מעל 10 דקות (‏69% מ-16,110, בין 00:00 ל-03:00 UTC)</span></div>
+  <div class="stat"><b>8,976 / 3,865</b><span>הזמנות PHUS שחיכו מעל 20 / מעל 30 דקות</span></div>
+  <div class="stat"><b>49 / 80</b><span>הזמנות PHCA/NALA שחיכו מעל 10 דקות, אותו חלון</span></div>
+  <div class="stat"><b>0</b><span>שגיאות, 5xx, פריסות או עומס בתורים אצלנו</span></div>
+</div>
+
+<section>
+  <h2>כמה זמן חיכינו לעדכון הראשון מ-DoorDash אחרי שיצרנו משלוח</h2>
+  <p class="note" style="margin-bottom:10px">PHUS, כל הזמנות DoorDash, בחלוקה ל-10 דקות לפי שעת יצירת המשלוח (UTC). מקור: מסד audit, ‏<span class="mono">store_orders</span> מול השורה הראשונה ב-<span class="mono">provider_callbacks</span>.</p>
+  <div class="chart"><svg id="lagchart" viewBox="0 0 900 330" role="img" aria-label="גרף: החציון עולה מ-0.3 דקות ב-00:10 UTC ל-41 דקות ב-02:00 UTC וחוזר ל-0.3 ב-03:10. בלילה הקודם השיא היה 15 דקות סביב 00:00 UTC."></svg>
+  <div class="legend"><span><i style="background:var(--accent)"></i>הלילה, חציון (16/10)</span><span><i style="background:var(--accent);opacity:.35"></i>הלילה, אחוזון 90</span><span><i style="background:var(--base)"></i>לילה קודם, חציון (15/10)</span></div></div>
+  <p class="note" style="margin-top:8px">החציון ואחוזון 90 צמודים (פער של עד כ-3 דקות) לאורך כל האירוע: כל ההזמנות עוכבו בערך באותה מידה. זה נראה כמו תור אחד שהצטבר אצל DoorDash, לא תקלות מפוזרות. בלילה הקודם, אחרי 01:30 UTC, הערכים לקוחים מנתון שעתי (0.3 דקות בכל שעה).</p>
+</section>
+
+<section>
+  <h2>ציר זמן</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>UTC</th><th>ישראל</th><th>מזרח ארה״ב</th><th>מה קרה</th></tr></thead>
+    <tbody>
+      <tr><td class="t">14/10 23:40</td><td class="t">02:40</td><td class="t">19:40</td><td>לילה קודם: גרסה קטנה של אותו עיכוב (שיא חציון 15 דקות ב-00:00, תקין ב-01:00).</td></tr>
+      <tr><td class="t">00:00</td><td class="t">03:00</td><td class="t">20:00</td><td>הלילה עדיין תקין (חציון 0.3 דקות).</td></tr>
+      <tr><td class="t">00:10</td><td class="t">03:10</td><td class="t">20:10</td><td>סימן ראשון: אחוזון 90 עולה ל-1.1 דקות.</td></tr>
+      <tr><td class="t">00:20</td><td class="t">03:20</td><td class="t">20:20</td><td>חציון 4 דקות. מספר העדכונים להזמנה יורד מ-35–45 הרגילים ל-10–17.</td></tr>
+      <tr><td class="t">00:50</td><td class="t">03:50</td><td class="t">20:50</td><td>חציון 30 דקות. שליחים מתחילים להגיע לפני שהחנות רואה שיבוץ.</td></tr>
+      <tr class="peak"><td class="t">02:00</td><td class="t">05:00</td><td class="t">22:00</td><td><b>שיא: חציון 41 דקות, אחוזון 90 ‏43 דקות.</b></td></tr>
+      <tr><td class="t">02:17</td><td class="t">05:17</td><td class="t">22:17</td><td>חנות 30104 בקנדה מקבלת עדכון ראשון באיחור של 31 דקות; ב-02:22 אפליקציית החנות מפעילה <span class="mono">GetMissingEvents</span>.</td></tr>
+      <tr class="hl"><td class="t">02:34</td><td class="t">05:34</td><td class="t">22:34</td><td>הזמנה 13669/207420101 נוצרת ונשלחת ל-DoorDash (פירוט בהמשך).</td></tr>
+      <tr><td class="t">02:50</td><td class="t">05:50</td><td class="t">22:50</td><td>חציון יורד ל-11 דקות, DoorDash מדביקים פער.</td></tr>
+      <tr class="hl"><td class="t">02:58</td><td class="t">05:58</td><td class="t">22:58</td><td>הזמנה 13669/207420103 נוצרת.</td></tr>
+      <tr><td class="t">03:00</td><td class="t">06:00</td><td class="t">23:00</td><td>DoorDash משחררים את כל מה שהצטבר: גל עדכונים, חלקם בסדר הפוך.</td></tr>
+      <tr class="ev"><td class="t">03:08</td><td class="t">06:08</td><td class="t">23:08</td><td>טל: "~60 קריאות בשעתיים".</td></tr>
+      <tr><td class="t">03:10</td><td class="t">06:10</td><td class="t">23:10</td><td>חזרה לשגרה: חציון 0.3 דקות.</td></tr>
+      <tr class="ev"><td class="t">03:15</td><td class="t">06:15</td><td class="t">23:15</td><td>טל: 34 קריאות PHUS בשעה האחרונה, 3 PHCA.</td></tr>
+      <tr class="ev"><td class="t">03:53</td><td class="t">06:53</td><td class="t">23:53</td><td>מוקד PH: השיחות הפסיקו.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>מה היה שונה מכל יום או שעה אחרים</h2>
+  <div class="diff">
+    <div class="hd"><span>מדד</span><span>רגיל (אותן שעות, 14 + 15/10)</span><span>הלילה</span></div>
+    <div><span>זמן עד העדכון הראשון (חציון)</span><span>0.3 דקות (‏18 שניות), כל שעה</span><span>עד 41 דקות, במשך 3 שעות</span></div>
+    <div><span>הזמנות שחיכו מעל 10 דקות, 00:00–03:00 UTC</span><span>כ-20–40 לשעה</span><span>2,958–4,923 לשעה</span></div>
+    <div><span>webhooks שהתקבלו לכל הזמנה (לשעה)</span><span>30–42</span><span>18.5 ב-01:00, ‏15.2 ב-02:00 UTC</span></div>
+    <div><span>פיזור בין חנויות</span><span>אין</span><span>כל החנויות עוכבו באותה מידה</span></div>
+    <div><span>אזורים</span><span>אין</span><span>PHUS ו-NALA (קנדה), פריסות נפרדות, אותה עקומה בדיוק</span></div>
+    <div><span>סדר העדכונים</span><span>לפי הסדר</span><span>הפוך בזמן השחרור ב-03:00 (נמסר ← הגיע ללקוח)</span></div>
+    <div><span>5xx ב-ALB, חיבורים שנדחו, שגיאות אפליקציה</span><span>0</span><span>0 (ללא שינוי)</span></div>
+    <div><span>פריסות / גרסת task</span><span>v17</span><span>v17, ללא שינוי</span></div>
+    <div><span>RabbitMQ לתורי החנויות</span><span>publish = deliver = ack</span><span>אותו דבר, 0 שליחות חוזרות, אין הצטברות</span></div>
+  </div>
+  <p class="note" style="margin-top:10px">בלילה הקודם (‏14/10 23:40 עד 15/10 01:00 UTC) היה אותו דפוס בקטן: שיא חציון 15 דקות, כ-3,200 הזמנות מעל 10 דקות. הלילה היה עמוק פי 3 וארוך פי 2. נתוני ה-audit מתחילים ב-14/10 00:00 UTC, כך שאי אפשר לבדוק לילות מוקדמים יותר.</p>
+</section>
+
+<section>
+  <h2>כמה הזמנות חיכו מעל 10, 20 ו-30 דקות לעדכון הראשון</h2>
+  <p class="note" style="margin-bottom:12px">הזמנות שהמשלוח שלהן נוצר בין 00:00 ל-03:00 UTC (‏03:00–06:00 IL). מדוד מרגע יצירת המשלוח ועד העדכון הראשון מ-DoorDash. כל שורה כוללת את השורות שמתחתיה (מעל 30 נכלל גם במעל 10).</p>
+  <div class="bars">
+    <div class="bar"><span class="lbl">מעל 10 דקות</span><span class="trk"><i style="width:69%"></i></span><b class="t">11,121 · 69%</b></div>
+    <div class="bar"><span class="lbl">מעל 20 דקות</span><span class="trk"><i style="width:55.7%"></i></span><b class="t">8,976 · 56%</b></div>
+    <div class="bar"><span class="lbl">מעל 30 דקות</span><span class="trk"><i style="width:24%"></i></span><b class="t">3,865 · 24%</b></div>
+    <div class="bar"><span class="lbl">מעל 40 דקות</span><span class="trk"><i style="width:3.9%"></i></span><b class="t">636 · 4%</b></div>
+  </div>
+  <p class="note" style="margin-top:6px">מתוך 16,110 הזמנות DoorDash ב-PHUS בחלון הזה.</p>
+  <div class="tablebox" style="margin-top:12px"><table>
+    <thead><tr><th>שעה (UTC)</th><th>שעה (IL)</th><th>הזמנות</th><th>&gt;10 דק׳</th><th>&gt;20 דק׳</th><th>&gt;30 דק׳</th><th>&gt;40 דק׳</th></tr></thead>
+    <tbody>
+      <tr><td class="t">22:00 + 23:00</td><td class="t">01–03</td><td class="t">17,887</td><td class="t">82</td><td class="t">34</td><td class="t">15</td><td class="t">11</td></tr>
+      <tr class="peak"><td class="t">00:00</td><td class="t">03</td><td class="t">7,680</td><td class="t">3,240</td><td class="t">1,880</td><td class="t">655</td><td class="t">26</td></tr>
+      <tr class="peak"><td class="t">01:00</td><td class="t">04</td><td class="t">5,181</td><td class="t">4,923</td><td class="t">4,805</td><td class="t">1,638</td><td class="t">29</td></tr>
+      <tr class="peak"><td class="t">02:00</td><td class="t">05</td><td class="t">3,249</td><td class="t">2,958</td><td class="t">2,291</td><td class="t">1,572</td><td class="t">581</td></tr>
+      <tr><td class="t">03:00 + 04:00</td><td class="t">06–08</td><td class="t">2,682</td><td class="t">5</td><td class="t">2</td><td class="t">1</td><td class="t">0</td></tr>
+      <tr><td><b>סה״כ האירוע (00:00–02:59)</b></td><td class="t">03–06</td><td class="t"><b>16,110</b></td><td class="t"><b>11,121</b></td><td class="t"><b>8,976</b></td><td class="t"><b>3,865</b></td><td class="t"><b>636</b></td></tr>
+      <tr class="ev"><td>לילה קודם, 00:00 UTC</td><td class="t">03</td><td class="t">6,490</td><td class="t">2,949</td><td class="t">28</td><td class="t">9</td><td class="t">4</td></tr>
+      <tr class="ev"><td>NALA (קנדה), 00:00–02:59</td><td class="t">03–06</td><td class="t">80</td><td class="t">49</td><td class="t">41</td><td class="t">17</td><td class="t">1</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note" style="margin-top:8px">בלילה הקודם כמעט כל ההזמנות המעוכבות חיכו בין 10 ל-20 דקות (רק 28 מעל 20). הלילה רוב ההזמנות עברו 20 דקות, ורבע עברו 30.</p>
+</section>
+
+<section>
+  <h2>כמה callbacks קיבלנו בכל שעה (שעתיים לפני ואחרי האירוע)</h2>
+  <p style="margin-bottom:10px">22:00–05:00 UTC (‏01:00–08:00 שעון ישראל), שלושה לילות. שני מקורות: <b>webhooks גולמיים</b> שהגיעו ל-daas-doordash (Datadog, כולל עדכוני מיקום כל 30 שניות), ו<b>עדכוני סטטוס</b> שנשמרו ב-audit ונשלחו לחנויות.</p>
+  <div class="chart"><svg id="hourly" viewBox="0 0 900 300" role="img" aria-label="עמודות: webhooks גולמיים לשעה בשלושה לילות. הלילה יש ירידה חדה ב-01:00 ו-02:00 UTC (98 ו-50 אלף לעומת 190 ו-127 אלף בלילה הקודם) וקפיצה ב-03:00."></svg>
+  <div class="legend"><span><i style="background:var(--base);opacity:.45;height:10px"></i>13→14/10</span><span><i style="background:var(--base);height:10px"></i>14→15/10</span><span><i style="background:var(--accent);height:10px"></i>15→16/10 (הלילה)</span></div></div>
+  <div class="tablebox" style="margin-top:12px"><table>
+    <thead><tr><th>UTC</th><th>ישראל</th><th>webhooks 13→14</th><th>webhooks 14→15</th><th>webhooks הלילה</th><th>הזמנות הלילה (לילה קודם)</th><th>webhooks להזמנה: הלילה / קודם</th><th>עדכוני סטטוס: קודם / הלילה</th><th>המתנה לעדכון ראשון (חציון)</th><th>הזמנות &gt;10 דק׳</th></tr></thead>
+    <tbody>
+      <tr><td class="t">22</td><td class="t">01</td><td class="t">218,986</td><td class="t">265,926</td><td class="t">299,568</td><td class="t">8,915 (8,151)</td><td class="t">33.6 / 32.6</td><td class="t">59,091 / 63,598</td><td class="t">19 s</td><td class="t">36</td></tr>
+      <tr><td class="t">23</td><td class="t">02</td><td class="t">231,804</td><td class="t">289,869</td><td class="t">339,366</td><td class="t">9,516 (8,389)</td><td class="t">35.7 / 34.6</td><td class="t">58,389 / 70,100</td><td class="t">19 s</td><td class="t">46</td></tr>
+      <tr class="peak"><td class="t">00</td><td class="t">03</td><td class="t">213,710</td><td class="t">199,404</td><td class="t">257,964</td><td class="t">7,959 (6,658)</td><td class="t">32.4 / 29.9</td><td class="t">57,380 / <b>45,688</b></td><td class="t"><b>6:01</b></td><td class="t"><b>3,240</b></td></tr>
+      <tr class="peak"><td class="t">01</td><td class="t">04</td><td class="t">160,525</td><td class="t">189,743</td><td class="t"><b>98,497</b></td><td class="t">5,329 (4,680)</td><td class="t"><b>18.5</b> / 40.5</td><td class="t">41,228 / 41,357</td><td class="t"><b>26:41</b></td><td class="t"><b>4,923</b></td></tr>
+      <tr class="peak"><td class="t">02</td><td class="t">05</td><td class="t">106,687</td><td class="t">127,484</td><td class="t"><b>50,374</b></td><td class="t">3,308 (3,152)</td><td class="t"><b>15.2</b> / 40.4</td><td class="t">27,862 / 29,089</td><td class="t"><b>29:25</b></td><td class="t"><b>2,958</b></td></tr>
+      <tr class="hl"><td class="t">03</td><td class="t">06</td><td class="t">57,512</td><td class="t">69,455</td><td class="t"><b>87,664</b></td><td class="t">1,876 (1,646)</td><td class="t">46.7 / 42.2</td><td class="t">15,515 / <b>26,572</b></td><td class="t">19 s</td><td class="t">3</td></tr>
+      <tr><td class="t">04</td><td class="t">07</td><td class="t">30,842</td><td class="t">33,038</td><td class="t">39,251</td><td class="t">848 (809)</td><td class="t">46.3 / 40.8</td><td class="t">7,467 / 8,268</td><td class="t">18 s</td><td class="t">2</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablebox" style="margin-top:12px"><table>
+    <thead><tr><th>NALA (קנדה), UTC</th><th>22</th><th>23</th><th>00</th><th>01</th><th>02</th><th>03</th><th>04</th></tr></thead>
+    <tbody>
+      <tr><td>webhooks 14→15</td><td class="t">600</td><td class="t">538</td><td class="t">570</td><td class="t">577</td><td class="t">596</td><td class="t">212</td><td class="t">143</td></tr>
+      <tr><td>webhooks הלילה</td><td class="t">899</td><td class="t">1,036</td><td class="t">934</td><td class="t"><b>280</b></td><td class="t"><b>196</b></td><td class="t"><b>321</b></td><td class="t">188</td></tr>
+      <tr><td>חציון המתנה הלילה</td><td class="t">18 s</td><td class="t">19 s</td><td class="t">1:50</td><td class="t"><b>23:52</b></td><td class="t"><b>22:17</b></td><td class="t">18 s</td><td class="t">17 s</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:16px">מה חריג בשעות</h3>
+  <ul style="margin-top:8px">
+    <li><b>00:00 UTC (‏03:00 IL), תחילת האירוע:</b> ה-webhooks הגולמיים עוד נראים רגילים, אבל עדכוני הסטטוס ירדו ל-5.7 להזמנה (רגיל 8.6–9.4). ‏3,240 הזמנות חיכו מעל 10 דקות.</li>
+    <li><b>01:00–02:59 UTC (‏04:00–05:59 IL), לב האירוע:</b> ה-webhooks הגולמיים ירדו ב-48% וב-60% לעומת הלילה הקודם, אף שמספר ההזמנות היה גבוה יותר. ‏15–18 webhooks להזמנה במקום כ-40. בקנדה ירידה של 51% ו-67%.</li>
+    <li><b>03:00 UTC (‏06:00 IL), השחרור:</b> קפיצה של 26% ב-webhooks ו-71% בעדכוני הסטטוס (‏26,572 לעומת 15,515). ‏14.2 עדכוני סטטוס להזמנה, הגבוה ביותר בשלושת הלילות. החנויות קיבלו בבת אחת עדכונים שהצטברו.</li>
+    <li><b>עדכוני סטטוס מול webhooks:</b> בשעות 01–02 עדכוני הסטטוס נשארו בכמות רגילה, אבל באיחור של 25–30 דקות. את רוב הירידה ב-webhooks הגולמיים מסבירים עדכוני המיקום (כל 30 שניות), ש-DoorDash כנראה לא שלחו בכלל.</li>
+    <li><b>לילה קודם, 00:00 UTC:</b> אותו דפוס בקטן. חציון 8:56 דקות, ‏2,949 הזמנות מעל 10 דקות, 29.9 webhooks להזמנה (הנמוך בלילה ההוא). התחיל ב-23:40.</li>
+    <li><b>14/10 19:00 UTC (‏22:00 IL):</b> אירוע קטן נוסף. 83 הזמנות מעל 10 דקות, אחוזון 90 של 138 שניות, ועדכוני הסטטוס צנחו ל-1,679 בחלון 19:10–19:20. בשעה המקבילה ב-15/10 הכל היה תקין (חציון 19 שניות, 2 הזמנות בלבד).</li>
+  </ul>
+</section>
+
+<section class="order">
+  <div class="order-head"><h2 style="margin:0">מחזור חיים: חנות 13669, הזמנה <span class="mono">207420101</span></h2><span class="note">DoorDash <span class="mono">2988973980</span> · ‏$28.08, טיפ $5.62 · עמלה $9.30</span></div>
+  <div class="kv">
+    <div><span>יצרנו את המשלוח ב-DoorDash (תשובה עם מספר משלוח)</span><b>02:34:36.299 UTC</b></div>
+    <div class="bad"><span>העדכון הראשון מ-DoorDash הגיע אלינו</span><b>02:58:34.757 UTC</b></div>
+    <div class="bad"><span>זמן ללא שום עדכון</span><b>23 min 58 s</b></div>
+    <div><span>השליח אסף לפי DoorDash (לפני שידענו על שיבוץ)</span><b>02:50:30 UTC</b></div>
+  </div>
+  <div class="chart"><svg id="life101" role="img" aria-label="מחזור חיים של הזמנה 207420101: יצירה ב-02:34:36, שקט עד 02:58:34, איסוף בפועל 02:50:30, נמסר 03:08:07."></svg>
+  <div class="legend"><span><i class="dot" style="background:var(--blue)"></i>אירוע אצלנו / בחנות</span><span><i class="dot" style="background:var(--ok)"></i>מה שקרה בפועל לפי DoorDash</span><span><i class="dia" style="background:var(--accent)"></i>עדכון שהגיע מ-DoorDash</span><span><i style="background:var(--accent);opacity:.25;height:10px"></i>שקט: אין עדכון</span></div></div>
+  <div class="tablebox"><table>
+    <thead><tr><th>UTC</th><th>שעון חנות (EDT)</th><th>מקור</th><th>אירוע</th></tr></thead>
+    <tbody>
+      <tr><td class="t">02:34:34.2</td><td class="t">22:34:34</td><td>חנות → daas-doordash</td><td>ההזמנה נכנסה מהקופה ונשלחה למטבח; בקשת הצעת מחיר נכנסת לשירות</td></tr>
+      <tr><td class="t">02:34:35.0</td><td class="t">22:34:35</td><td>DoorDash → daas-doordash</td><td>הצעת מחיר: איסוף 22:49</td></tr>
+      <tr><td class="t">02:34:35.2</td><td class="t">22:34:35</td><td>daas-doordash</td><td>בקשת יצירת משלוח נכנסת ונשלחת ל-DoorDash</td></tr>
+      <tr class="hl"><td class="t">02:34:36.3</td><td class="t">22:34:36</td><td>DoorDash → daas-doordash</td><td><b>המשלוח נוצר</b> (מספר 2988973980, סטטוס Scheduled, איסוף צפוי 02:49:27). מכאן ההזמנה ב-"Waiting For Agg".</td></tr>
+      <tr><td class="t">02:38:10</td><td class="t">22:38:10</td><td>מסכי מטבח</td><td>נכנס לתנור</td></tr>
+      <tr><td class="t">02:48:06</td><td class="t">22:48:06</td><td>מסכי מטבח</td><td>נארז, מוכן לאיסוף</td></tr>
+      <tr><td class="t">02:50:30</td><td class="t">22:50:30</td><td>DoorDash (חותמת זמן שלהם)</td><td>השליח אוסף את ההזמנה. ידענו על כך רק ב-03:00.</td></tr>
+      <tr class="peak"><td class="t">02:58:34.8</td><td class="t">22:58:35</td><td>DoorDash → אנחנו → חנות</td><td><b>עדכון ראשון: משלוח נוצר, אין שליח. 24 דקות אחרי היצירה (בדרך כלל 18 שניות).</b></td></tr>
+      <tr><td class="t">02:59:59</td><td class="t">22:59:59</td><td>DoorDash</td><td>השליח Christiaan B. אישר; המיקום שלו ליד החנות</td></tr>
+      <tr><td class="t">03:00:18</td><td class="t">23:00:19</td><td>DoorDash</td><td>נאסף, בדרך ללקוח</td></tr>
+      <tr><td class="t">03:01:14</td><td class="t">23:01:14</td><td>DoorDash</td><td>⚠️ "הגיע לחנות": ישן יותר מהעדכון הקודם; העברנו אותו והחנות חזרה ל-Assigned</td></tr>
+      <tr><td class="t">03:03:25</td><td class="t">23:03:25</td><td>DoorDash</td><td>נאסף שוב; השליח כבר כ-1.6 ק״מ מזרחית לחנות</td></tr>
+      <tr><td class="t">03:04:25</td><td class="t">23:04:25</td><td>חנות</td><td>סומן Dispatched; זמן הגעה משוער 983 שניות, 9.2 ק״מ</td></tr>
+      <tr><td class="t">03:08:07</td><td class="t">23:08:07</td><td>DoorDash (חותמת זמן שלהם)</td><td>נמסר</td></tr>
+      <tr><td class="t">03:08:40</td><td class="t">23:08:40</td><td>DoorDash → חנות</td><td>עדכון "נמסר"</td></tr>
+      <tr><td class="t">03:08:54</td><td class="t">23:08:55</td><td>DoorDash</td><td>⚠️ "הגיע ללקוח" אחרי "נמסר"; החנות חזרה ל-Picked up</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="order">
+  <div class="order-head"><h2 style="margin:0">מחזור חיים: חנות 13669, הזמנה <span class="mono">207420103</span></h2><span class="note">DoorDash <span class="mono">2988989590</span> · עמלה $5.30</span></div>
+  <p>ההזמנה נוצרה בסוף האירוע. העדכון הראשון איחר ב-8.5 דקות, ומשם כל העדכונים הגיעו כמעט בזמן אמת ובסדר הנכון. ההשפעה הייתה רק בין 02:58 ל-03:06 UTC: ההזמנה הייתה ב-"Waiting For Agg" עוד לפני שהיה שליח. השליחה Octavia P. שובצה ב-03:08:49 והגיעה לחנות אחרי שההזמנה נארזה.</p>
+  <div class="kv">
+    <div><span>יצרנו את המשלוח ב-DoorDash (תשובה עם מספר משלוח)</span><b>02:58:02.252 UTC</b></div>
+    <div class="bad"><span>העדכון הראשון מ-DoorDash הגיע אלינו</span><b>03:06:30.882 UTC</b></div>
+    <div class="bad"><span>זמן ללא שום עדכון</span><b>8 min 29 s</b></div>
+    <div><span>נמסר לפי DoorDash / עדכון התקבל</span><b>03:19:38 / 03:19:38</b></div>
+  </div>
+  <div class="chart"><svg id="life103" role="img" aria-label="מחזור חיים של הזמנה 207420103: יצירה ב-02:58:02, שקט עד 03:06:30, שיבוץ 03:08:49, איסוף 03:14:49, נמסר 03:19:38."></svg>
+  <div class="legend"><span><i class="dot" style="background:var(--blue)"></i>אירוע אצלנו / בחנות</span><span><i class="dot" style="background:var(--ok)"></i>מה שקרה בפועל לפי DoorDash</span><span><i class="dia" style="background:var(--accent)"></i>עדכון שהגיע מ-DoorDash</span><span><i style="background:var(--accent);opacity:.25;height:10px"></i>שקט: אין עדכון</span></div></div>
+  <div class="tablebox"><table>
+    <thead><tr><th>UTC</th><th>שעון חנות (EDT)</th><th>מקור</th><th>אירוע</th></tr></thead>
+    <tbody>
+      <tr><td class="t">02:57:59</td><td class="t">22:57:59</td><td>חנות</td><td>ההזמנה נכנסה מהקופה</td></tr>
+      <tr><td class="t">02:58:00.1</td><td class="t">22:58:00</td><td>daas-doordash</td><td>בקשת הצעת מחיר; תשובה ב-02:58:00.9, איסוף מוצע 23:13</td></tr>
+      <tr><td class="t">02:58:01.0</td><td class="t">22:58:01</td><td>daas-doordash</td><td>בקשת יצירת משלוח נשלחת ל-DoorDash</td></tr>
+      <tr class="hl"><td class="t">02:58:02.3</td><td class="t">22:58:02</td><td>DoorDash → daas-doordash</td><td><b>המשלוח נוצר</b> (מספר 2988989590, איסוף צפוי 03:13:17)</td></tr>
+      <tr><td class="t">03:02:34</td><td class="t">23:02:34</td><td>מסכי מטבח</td><td>נכנס לתנור</td></tr>
+      <tr class="peak"><td class="t">03:06:30.9</td><td class="t">23:06:31</td><td>DoorDash → אנחנו → חנות</td><td><b>עדכון ראשון: משלוח נוצר, אין שליח. 8.5 דקות אחרי היצירה.</b></td></tr>
+      <tr><td class="t">03:08:49</td><td class="t">23:08:50</td><td>DoorDash</td><td>השליחה Octavia P. אישרה</td></tr>
+      <tr><td class="t">03:09:19</td><td class="t">23:09:20</td><td>DoorDash</td><td>בדרך לחנות (עדכוני מיקום כל 30 שניות)</td></tr>
+      <tr><td class="t">03:10:51</td><td class="t">23:10:51</td><td>מסכי מטבח</td><td>נארז, מוכן</td></tr>
+      <tr><td class="t">03:12:19</td><td class="t">23:12:19</td><td>DoorDash</td><td>הגיעה לחנות</td></tr>
+      <tr><td class="t">03:14:15</td><td class="t">23:14:15</td><td>חנות</td><td>סומן Dispatched; 1.6 ק״מ, משוער 273 שניות</td></tr>
+      <tr><td class="t">03:14:49</td><td class="t">23:14:49</td><td>DoorDash (חותמת זמן שלהם)</td><td>נאסף; העדכון התקבל ב-03:15:05</td></tr>
+      <tr><td class="t">03:17:54</td><td class="t">23:17:54</td><td>DoorDash</td><td>הגיעה ללקוח</td></tr>
+      <tr><td class="t">03:19:38</td><td class="t">23:19:39</td><td>DoorDash → חנות</td><td>נמסר; התקבל באותה שנייה</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>כל ההזמנות שדווחו</h2>
+  <p class="note" style="margin-bottom:10px">לוגים של אפליקציות החנות (3 קבצי zip) מול מסד ה-audit שלנו. כל חנות קיבלה כל עדכון תוך שנייה מהרגע ש-DoorDash שלחו אותו אלינו.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>חנות / הזמנה</th><th>מספר DoorDash</th><th>משלוח נוצר (UTC)</th><th>עדכון ראשון</th><th>המתנה</th><th>הערות</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">12405 / 207420119</td><td class="mono">2988943766</td><td class="t">01:54:47</td><td class="t">02:31:46</td><td><span class="pill bad">37.0 min</span></td><td>שליח שובץ 02:46, נמסר 02:56.</td></tr>
+      <tr><td class="mono">30104 / 261015000247</td><td class="mono">2988935817</td><td class="t">01:45:56</td><td class="t">02:17:22</td><td><span class="pill bad">31.4 min</span></td><td>קנדה. החנות הפעילה <span class="mono">GetMissingEvents</span> ב-02:22. נמסר 02:49.</td></tr>
+      <tr><td class="mono">13669 / 207420101</td><td class="mono">2988973980</td><td class="t">02:34:36</td><td class="t">02:58:34</td><td><span class="pill bad">24.0 min</span></td><td>שליח אסף לפני העדכון הראשון; עדכונים בסדר הפוך.</td></tr>
+      <tr><td class="mono">13669 / 207420102</td><td class="mono">2988976416</td><td class="t">02:38:23</td><td class="t">03:00:19</td><td><span class="pill bad">21.9 min</span></td><td>"נמסר" 03:06:02, ואחריו "הגיע ללקוח" 03:06:24.</td></tr>
+      <tr><td class="mono">13669 / 207420103</td><td class="mono">2988989590</td><td class="t">02:58:02</td><td class="t">03:06:31</td><td><span class="pill bad">8.5 min</span></td><td>סוף האירוע; משם הכל תקין.</td></tr>
+      <tr><td class="mono">41291 / 207420043</td><td class="mono">2988757625</td><td class="t">00:27:04</td><td class="t">00:33:04</td><td><span class="pill bad">6 min</span></td><td>שליח אסף 00:39; עדכון "נאסף" באיחור 18 דקות.</td></tr>
+      <tr><td class="mono">41291 / 207420044</td><td class="mono">2988778451</td><td class="t">00:31:51</td><td class="t">00:41:51</td><td><span class="pill bad">10 min</span></td><td>"נאסף" באיחור 22 דקות, "נמסר" באיחור 31 דקות.</td></tr>
+      <tr><td class="mono">27770 / 207420056</td><td class="mono">2988794259</td><td class="t">00:35:30</td><td class="t">00:49:10</td><td><span class="pill bad">14 min</span></td><td>שליח אסף 00:46, לפני שידענו שהמשלוח נוצר.</td></tr>
+      <tr><td class="mono">34508 / 207420059</td><td class="mono">2988645331</td><td class="t">23:39:52</td><td class="t">—</td><td><span class="pill ok">תקין</span></td><td>בעיה אחרת: DoorDash החליפו 5 שליחים ואז ביטלו ב-00:37.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note" style="margin-top:8px">בהזמנות 101 ו-103 זמן היצירה נלקח מהלוג של daas-doordash (התשובה של DoorDash עם מספר המשלוח). בשאר ההזמנות הוא נלקח מ-<span class="mono">store_orders</span> או מלוג החנות, ומדויק ברמת השנייה.</p>
+</section>
+
+<section>
+  <h2>האם בקנדה מקבלים פי 4 יותר callbacks?</h2>
+  <p><b>לא.</b> היחס של פי 4 הוא בין <b>webhooks גולמיים</b> ל<b>עדכוני סטטוס</b> שנשמרים ב-audit, והוא קיים בשני האזורים. ה-audit שומר שורה רק כשהסטטוס משתנה, ולא שומר עדכוני מיקום של השליח (כל 30 שניות). החנות מקבלת את כולם: בהזמנה 101 החנות קיבלה 16 עדכונים, וב-audit נשמרו 7. לכל משלוח פעיל, קנדה מקבלת אפילו פחות.</p>
+  <div class="tablebox" style="margin-top:12px"><table>
+    <thead><tr><th>15/10 22:00–23:00 UTC (שעה תקינה)</th><th>PHUS</th><th>NALA (קנדה)</th></tr></thead>
+    <tbody>
+      <tr><td>webhooks שהגיעו ל-daas-doordash</td><td class="t">299,568</td><td class="t">899</td></tr>
+      <tr><td>הועברו ל-gateway (נמצאה הזמנה)</td><td class="t">299,134</td><td class="t">894</td></tr>
+      <tr><td>שורות ב-audit (שינויי סטטוס)</td><td class="t">63,598</td><td class="t">233</td></tr>
+      <tr><td><b>יחס webhooks / audit</b></td><td class="t"><b>×4.7</b></td><td class="t"><b>×3.9</b></td></tr>
+      <tr><td>משלוחים פעילים בשעה</td><td class="t">12,648</td><td class="t">50</td></tr>
+      <tr><td><b>webhooks למשלוח פעיל</b></td><td class="t"><b>23.7</b></td><td class="t"><b>18.0</b></td></tr>
+    </tbody>
+  </table></div>
+  <p class="note" style="margin-top:8px">ב-PHUS ה-gateway שלח לתור בדיוק את מספר ה-callbacks ש-daas-doordash העביר (299,134). ב-NALA ה-gateway משרת גם ספקים אחרים, ולכן הספירה שלו (15,300) לא בת השוואה. ההפרש הקטן בין webhooks להעברות הוא עדכונים על משלוחים שלא נמצאו אצלנו.</p>
+</section>
+
+<section>
+  <h2>מסד הנתונים של daas-doordash</h2>
+  <p><b>קטן ונקי, לא קשור לתקלה.</b> נתונים נשמרים כ-3 ימים (השורה הישנה ביותר מ-13/10 08:00), הניקוי עובד, ו-autovacuum רץ בזמן האירוע. ה-callbacks מחפשים את ההזמנה ב-cache ולא במסד ("Fetched algoDelivery data from cache"), וה-CPU של ה-RDS היה 1.5–2.9% כל הלילה.</p>
+  <div class="tablebox" style="margin-top:12px"><table>
+    <thead><tr><th>טבלה</th><th>שורות חיות</th><th>שורות מתות</th><th>גודל (כולל אינדקסים)</th><th>vacuum אחרון (UTC)</th></tr></thead>
+    <tbody>
+      <tr class="ev"><td colspan="5"><b>PHUS</b>: מסד של 189 MB</td></tr>
+      <tr><td class="mono">algo_discovery</td><td class="t">167,211</td><td class="t">9,614 (5.4%)</td><td class="t">178 MB (טבלה 30 MB, אינדקסים 149 MB)</td><td class="t">10-16 02:37</td></tr>
+      <tr><td class="mono">store_discovery</td><td class="t">4,825</td><td class="t">174 (3.5%)</td><td class="t">2.9 MB</td><td class="t">10-15 11:25</td></tr>
+      <tr><td class="mono">callbacks</td><td class="t">0</td><td class="t">0</td><td class="t">32 kB</td><td>לא בשימוש</td></tr>
+      <tr class="ev"><td colspan="5"><b>NALA</b>: מסד של 37 MB</td></tr>
+      <tr><td class="mono">algo_discovery</td><td class="t">1,756</td><td class="t">150 (7.9%)</td><td class="t">26 MB (טבלה 384 kB, אינדקסים 26 MB)</td><td class="t">10-16 01:04</td></tr>
+      <tr><td class="mono">store_discovery</td><td class="t">515</td><td class="t">37 (6.7%)</td><td class="t">248 kB</td><td class="t">10-12 12:30</td></tr>
+      <tr><td class="mono">callbacks</td><td class="t">0</td><td class="t">0</td><td class="t">2.5 MB</td><td>לא בשימוש</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:16px">שני ניקיונות קטנים (לא דחופים)</h3>
+  <ul style="margin-top:8px">
+    <li><b>NALA, אינדקס נפוח:</b> <span class="mono">store_brand_order</span> תופס 18 MB עבור 1,756 שורות, כשהטבלה עצמה 384 kB. ה-pkey תופס 6.9 MB. שורות נמחקות כל הזמן והאינדקס לא מתכווץ. <span class="mono">REINDEX CONCURRENTLY</span> יקטין אותו לפחות מ-1 MB.</li>
+    <li><b>PHUS, אינדקס לא בשימוש:</b> <span class="mono">idx_algo_open_orders</span> (‏42 MB) לא נסרק אף פעם (‏idx_scan = 0). האינדקסים ב-PHUS גדולים פי 5 מהטבלה. אפשר לשקול להסיר או לבנות מחדש.</li>
+  </ul>
+</section>
+
+<div class="cols">
+  <section>
+    <h2>מה נבדק אצלנו (הכל תקין)</h2>
+    <ul>
+      <li>ALB <span class="mono">md-doordash-prod-phus-alb</span>: אין 5xx ואין חיבורים שנדחו. כמות הבקשות ירדה יחד עם העדכונים.</li>
+      <li>daas-doordash: כל עדכון קיבל 200 והועבר ל-gateway באותה שנייה.</li>
+      <li>gateway ← RabbitMQ ← תורי החנויות: בלי TTL, בלי הצטברות, 0 שליחות חוזרות. ה-broker למעלה 236 שעות, בלי התראות.</li>
+      <li>אפליקציות החנות: כל עדכון התקבל תוך שנייה מהקבלה אצלנו (zip של 12405, 13669, 30104).</li>
+      <li>אין פריסה: task version 17 לאורך כל הלילה. אין הפעלות מחדש של tasks (ECS: משימה אחת רצה מתוך אחת).</li>
+      <li>CPU/זיכרון (Datadog + CloudWatch): ‏daas-doordash מקסימום 16% CPU ו-130MB, ‏gateway מקסימום 8% CPU ו-223MB. ה-CPU אפילו ירד במהלך האירוע כי הגיעו פחות בקשות. engine ו-audit מתחת ל-4%.</li>
+      <li>RDS (doordash, gateway, audit): ‏CPU מקסימום 2–9%, זהה ללילה הקודם.</li>
+      <li>ALB: זמני תגובה זהים ללילה הקודם. כמות הבקשות ירדה בחצי (01:00–02:00 UTC) וקפצה ב-03:00 בזמן השחרור.</li>
+      <li>מוניטורים ב-Datadog: אף התראת CPU, זיכרון, tasks, ‏5xx או ALB. התראות "AmazonMQ consumer count" של PHUS (צרכן כפול על תור חנות) רצות בקצב של 15–29 לשעה כל לילה, בלי קפיצה בחלון האירוע. התראות שגיאה ב-doordash NALA הן "validation error" על ביטולים שנדחו, באותה כמות כמו בלילות קודמים.</li>
+      <li>דף הסטטוס של DoorDash: לא פורסם דבר עבור 14–16/10.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>בעיה משנית אצלנו (לא הסיבה)</h2>
+    <ul>
+      <li>daas-doordash קובע סטטוס רק לפי <span class="mono">dasher_status</span> ומעביר גם צעדים אחורה. עדכון מאוחר או לא בסדר מחזיר את החנות אחורה: Assigned ← Unassigned ב-<span class="mono">driver_batched</span>, ו-Delivered ← Picked up בזמן השחרור הלילה.</li>
+      <li>זה קורה כל לילה בקצב דומה; הלילה העיכובים הבליטו את זה. תיקון: לחסום חזרה אחורה בסטטוס (חוץ מביטול) ב-<span class="mono">internal/providers/doordash/doordash.go</span>.</li>
+    </ul>
+  </section>
+</div>
+
+<section>
+  <h2>צעדים הבאים</h2>
+  <ul>
+    <li><b>לפתוח קריאה ב-DoorDash Drive</b> על עיכוב webhooks, ‏16/10 00:10–03:10 UTC, וגם על האירוע הקטן 14/10 23:40 – 15/10 01:00 UTC. לצרף משלוחים 2988973980, 2988943766, 2988935817, 2988757625, 2988778451. לשאול אם זה חוזר.</li>
+    <li><b>התראה על זמן לעדכון ראשון.</b> חציון מעל 5 דקות במשך 10 דקות היה מתריע ב-00:20 UTC, כשעתיים וחצי לפני שהמוקד הסלים.</li>
+    <li><b>לשקול גיבוי בשאילתה יזומה</b> (<span class="mono">GET /deliveries/{id}</span>) כשאין עדכון תוך כמה דקות. אפליקציית החנות בקנדה כבר עושה משהו דומה.</li>
+    <li><b>להעביר את החסימה של צעדים אחורה</b> לבעלי daas-doordash כבאג.</li>
+  </ul>
+  <p class="note" style="margin-top:10px">לא נבדק: האם כל 3 קריאות ה-PHCA זהות. הזמנה אחת מקנדה (30104) נבדקה ותואמת בדיוק.</p>
+</section>
+</div>
+
+<script>
+(function(){
+  var ns="http://www.w3.org/2000/svg";
+  function mk(svg,n,a,txt){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e}
+
+  // Lag chart
+  (function(){
+    var labels=["23:30","23:40","23:50","00:00","00:10","00:20","00:30","00:40","00:50","01:00","01:10","01:20","01:30","01:40","01:50","02:00","02:10","02:20","02:30","02:40","02:50","03:00","03:10","03:20"];
+    var p50=[0.3,0.3,0.3,0.3,0.4,4.3,13.1,21.9,30.4,30.2,24.8,21.5,24.6,30.6,36.2,41.2,38.2,31.7,24.4,17.7,10.9,2.9,0.3,0.3];
+    var p90=[0.4,0.4,0.3,0.3,1.1,7.8,17.2,26.0,33.0,32.5,27.3,22.5,27.5,33.4,38.6,42.7,41.0,34.5,27.9,20.9,13.8,6.2,0.3,0.3];
+    var prev=[0.3,1.2,7.2,15.3,14.6,10.3,5.8,3.5,1.8,0.4,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3,0.3];
+    var svg=document.getElementById("lagchart"),W=900,H=330,L=48,R=16,T=14,B=40,ymax=45;
+    var x=function(i){return L+i*(W-L-R)/(labels.length-1)}, y=function(v){return T+(H-T-B)*(1-v/ymax)};
+    [0,10,20,30,40].forEach(function(v){
+      mk(svg,"line",{x1:L,x2:W-R,y1:y(v),y2:y(v),stroke:"var(--line)","stroke-width":1});
+      mk(svg,"text",{x:L-8,y:y(v)+4,"text-anchor":"end","font-size":11,fill:"var(--muted)","font-family":"var(--mono)"},v+(v===40?" min":""));
+    });
+    labels.forEach(function(l,i){ if(i%3===0) mk(svg,"text",{x:x(i),y:H-B+18,"text-anchor":"middle","font-size":11,fill:"var(--muted)","font-family":"var(--mono)"},l); });
+    mk(svg,"text",{x:(L+W-R)/2,y:H-4,"text-anchor":"middle","font-size":11,fill:"var(--muted)"},"UTC (ישראל = UTC+3)");
+    mk(svg,"rect",{x:x(4),y:T,width:x(22)-x(4),height:H-T-B,fill:"var(--accent-soft)",opacity:.6});
+    function path(a){return a.map(function(v,i){return (i?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1)}).join(" ")}
+    mk(svg,"path",{d:path(p50)+" L"+x(23)+" "+y(0)+" L"+x(0)+" "+y(0)+" Z",fill:"var(--accent)",opacity:.12});
+    mk(svg,"path",{d:path(p90),fill:"none",stroke:"var(--accent)","stroke-width":1.5,opacity:.35});
+    mk(svg,"path",{d:path(prev),fill:"none",stroke:"var(--base)","stroke-width":2,"stroke-dasharray":"5 4"});
+    mk(svg,"path",{d:path(p50),fill:"none",stroke:"var(--accent)","stroke-width":2.5});
+    mk(svg,"circle",{cx:x(15),cy:y(41.2),r:4.5,fill:"var(--accent)"});
+    mk(svg,"text",{x:x(15),y:y(41.2)-10,"text-anchor":"middle","font-size":12,fill:"var(--fg)","font-weight":600},"41 min");
+    mk(svg,"text",{x:x(3)+6,y:y(15.3)-8,"font-size":11,fill:"var(--base)"},"לילה קודם 15 min");
+    mk(svg,"line",{x1:x(21),x2:x(21),y1:T,y2:H-B,stroke:"var(--muted)","stroke-dasharray":"2 3"});
+    mk(svg,"text",{x:x(21)+4,y:T+14,"font-size":11,fill:"var(--muted)"},"03:00 שחרור");
+  })();
+
+  // Hourly raw webhooks, three nights
+  (function(){
+    var hrs=["22","23","00","01","02","03","04"];
+    var n1=[218986,231804,213710,160525,106687,57512,30842], n2=[265926,289869,199404,189743,127484,69455,33038], n3=[299568,339366,257964,98497,50374,87664,39251];
+    var svg=document.getElementById("hourly"),W=900,H=300,L=56,R=16,T=16,B=44,ymax=350000;
+    var y=function(v){return T+(H-T-B)*(1-v/ymax)}, gw=(W-L-R)/hrs.length, bw=gw*0.24;
+    [0,100000,200000,300000].forEach(function(v){
+      mk(svg,"line",{x1:L,x2:W-R,y1:y(v),y2:y(v),stroke:"var(--line)"});
+      mk(svg,"text",{x:L-8,y:y(v)+4,"text-anchor":"end","font-size":11,fill:"var(--muted)","font-family":"var(--mono)"},v?(v/1000)+"k":"0");
+    });
+    mk(svg,"rect",{x:L+2*gw,y:T,width:3*gw,height:H-T-B,fill:"var(--accent-soft)",opacity:.6});
+    hrs.forEach(function(h,i){
+      var x0=L+i*gw+gw*0.14;
+      [[n1,"var(--base)",.45],[n2,"var(--base)",1],[n3,"var(--accent)",1]].forEach(function(s,j){
+        var v=s[0][i];
+        mk(svg,"rect",{x:x0+j*bw,y:y(v),width:bw-2,height:y(0)-y(v),fill:s[1],opacity:s[2]});
+      });
+      var v3=n3[i];
+      mk(svg,"text",{x:x0+2*bw+bw/2-1,y:y(v3)-5,"text-anchor":"middle","font-size":10.5,fill:"var(--fg)","font-family":"var(--mono)"},Math.round(v3/1000)+"k");
+      mk(svg,"text",{x:L+i*gw+gw/2,y:H-B+18,"text-anchor":"middle","font-size":11.5,fill:"var(--muted)","font-family":"var(--mono)"},h+":00");
+      mk(svg,"text",{x:L+i*gw+gw/2,y:H-B+32,"text-anchor":"middle","font-size":10,fill:"var(--muted)","font-family":"var(--mono)"},(((+h)+3)%24<10?"0":"")+(((+h)+3)%24)+":00 IL");
+    });
+  })();
+
+  // Lifecycle lane charts. Times are UTC "HH:MM:SS".
+  function sec(t){var p=t.split(":").map(Number);return p[0]*3600+p[1]*60+(p[2]||0)}
+  function hhmm(s){var h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h<10?"0":"")+h+":"+(m<10?"0":"")+m}
+  function lifecycle(id,o){
+    var svg=document.getElementById(id),W=920,L=150,R=24,T=34,laneH=56,lanes=o.lanes,H=T+lanes.length*laneH+44;
+    svg.setAttribute("viewBox","0 0 "+W+" "+H);
+    var s0=sec(o.from),s1=sec(o.to),x=function(t){return L+(sec(t)-s0)*(W-L-R)/(s1-s0)};
+    var laneY=function(i){return T+i*laneH+laneH/2};
+    // gap band
+    mk(svg,"rect",{x:x(o.gap[0]),y:T,width:x(o.gap[1])-x(o.gap[0]),height:lanes.length*laneH,fill:"var(--accent)",opacity:.13});
+    mk(svg,"text",{x:(x(o.gap[0])+x(o.gap[1]))/2,y:T-12,"text-anchor":"middle","font-size":13,"font-weight":600,fill:"var(--accent)"},o.gapLabel);
+    mk(svg,"line",{x1:x(o.gap[0]),x2:x(o.gap[1]),y1:T-6,y2:T-6,stroke:"var(--accent)","stroke-width":1.5});
+    // grid
+    for(var s=Math.ceil(s0/o.tick)*o.tick;s<=s1;s+=o.tick){
+      var gx=L+(s-s0)*(W-L-R)/(s1-s0);
+      mk(svg,"line",{x1:gx,x2:gx,y1:T,y2:T+lanes.length*laneH,stroke:"var(--line)","stroke-width":1});
+      mk(svg,"text",{x:gx,y:T+lanes.length*laneH+16,"text-anchor":"middle","font-size":11,fill:"var(--muted)","font-family":"var(--mono)"},hhmm(s));
+      mk(svg,"text",{x:gx,y:T+lanes.length*laneH+30,"text-anchor":"middle","font-size":10,fill:"var(--muted)","font-family":"var(--mono)"},hhmm(s+3*3600)+" IL");
+    }
+    lanes.forEach(function(ln,i){
+      var y=laneY(i);
+      mk(svg,"line",{x1:L,x2:W-R,y1:T+i*laneH+laneH,y2:T+i*laneH+laneH,stroke:"var(--line)"});
+      mk(svg,"text",{x:L-10,y:y+4,"text-anchor":"end","font-size":12.5,"font-weight":600,fill:"var(--fg)"},ln.name);
+      var lastLabelX=-1e9,row=0;
+      ln.ev.forEach(function(e){
+        var cx=x(e[0]),col=ln.color;
+        if(ln.shape==="dia"){
+          var c=e[2]?"var(--accent)":col;
+          mk(svg,"rect",{x:cx-5,y:y-5,width:10,height:10,fill:c,transform:"rotate(45 "+cx+" "+y+")"});
+        } else mk(svg,"circle",{cx:cx,cy:y,r:5.5,fill:col});
+        if(e[1]){
+          row = (cx-lastLabelX<80)? (row+1)%2 : 0; lastLabelX=cx;
+          mk(svg,"text",{x:cx,y:row?y+20:y-11,"text-anchor":"middle","font-size":11,fill:e[2]?"var(--accent)":"var(--muted)"},e[1]);
+        }
+      });
+    });
+    mk(svg,"text",{x:L-10,y:T+lanes.length*laneH+16,"text-anchor":"end","font-size":10,fill:"var(--muted)"},"UTC");
+  }
+
+  lifecycle("life101",{from:"02:33:00",to:"03:10:30",tick:300,gap:["02:34:36","02:58:34"],gapLabel:"23:58 דק׳ בלי אף עדכון מ-DoorDash",
+    lanes:[
+      {name:"מטבח החנות",color:"var(--blue)",ev:[["02:34:34","נכנסה"],["02:38:10","תנור"],["02:48:06","נארז"],["03:04:25","Dispatched"],["03:08:40","נמסר"]]},
+      {name:"daas-doordash",color:"var(--blue)",ev:[["02:34:36","משלוח נוצר"]]},
+      {name:"DoorDash בפועל",color:"var(--ok)",ev:[["02:50:30","נאסף"],["03:08:07","נמסר"]]},
+      {name:"עדכונים מ-DoorDash",color:"var(--accent)",shape:"dia",ev:[["02:58:34","ראשון",1],["02:59:59","שובץ"],["03:00:18","נאסף"],["03:01:14","↩ בחנות",1],["03:03:25",""],["03:04:19",""],["03:04:50",""],["03:05:20",""],["03:05:51",""],["03:06:21",""],["03:06:52",""],["03:07:22",""],["03:07:53",""],["03:08:40","נמסר"],["03:08:54","↩",1]]}
+    ]});
+
+  lifecycle("life103",{from:"02:57:00",to:"03:21:00",tick:180,gap:["02:58:02","03:06:30"],gapLabel:"8:28 דק׳ בלי עדכון",
+    lanes:[
+      {name:"מטבח החנות",color:"var(--blue)",ev:[["02:57:59","נכנסה"],["03:02:34","תנור"],["03:10:51","נארז"],["03:14:15","Dispatched"],["03:19:39","נמסר"]]},
+      {name:"daas-doordash",color:"var(--blue)",ev:[["02:58:02","משלוח נוצר"]]},
+      {name:"DoorDash בפועל",color:"var(--ok)",ev:[["03:14:49","נאסף"],["03:19:38","נמסר"]]},
+      {name:"עדכונים מ-DoorDash",color:"var(--accent)",shape:"dia",ev:[["03:06:30","ראשון",1],["03:08:49","שובץ"],["03:09:19",""],["03:12:19","בחנות"],["03:15:05","נאסף"],["03:15:52",""],["03:17:54","אצל לקוח"],["03:19:38","נמסר"]]}
+    ]});
+})();
+</script>
+
+</html>
